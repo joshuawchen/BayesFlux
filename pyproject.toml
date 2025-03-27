@@ -1,0 +1,35 @@
+[build-system]
+requires = ["uv_build>=0.5.0"]
+build-backend = "uv_build"
+
+[project]
+name = "BayesFlux"
+version = "0.1.0"
+description = "Bayesian Fast Linear algebra sUbspace eXtraction in JAX"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+authors = [
+  { name = "Joshua Chen", email = "joshuawchen@icloud.com" },
+  { name = "Michael Brennan", email = "mcbrenn@mit.edu" },
+  { name = "Thomas O'Leary-Roseberry", email = "tom.olearyroseberry@utexas.edu" }
+]
+dependencies = [
+    "jax",
+    "jaxlib",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "isort",
+    "flake8"
+]
+
+[project.urls]
+Homepage = "https://github.com/joshuawchen/BayesFlux"
+Repository = "https://github.com/joshuawchen/BayesFlux"
+
+[tool.uv_build]
+src_dir = "src"
