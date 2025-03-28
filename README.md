@@ -5,7 +5,7 @@
 ## Features
 
 - Active Subspace for parameter dimension reduction
-- Informative Output Subspace 
+- Informative Output Subspace  for data dimension reduction
 
 ## Installation
 
