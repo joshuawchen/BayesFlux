@@ -1,10 +1,52 @@
 from typing import Any, Dict
 
+import time
+import jax
 import jax.numpy as jnp
+from jax.scipy.linalg import solve_triangular
 
-from randlax import double_pass_randomized_gen_eigh, double_pass_randomized_eigh
+from bayesflux import double_pass_randomized_gen_eigh, double_pass_randomized_eigh
 
-def input_active_subspace_encoder_decoder(
+def __batch_cholesky_solve(prior_precision: jnp.ndarray,
+                           J_samples: jnp.ndarray):
+    L = jnp.linalg.cholesky(prior_precision)
+    Z = solve_triangular(L, J_samples / J_samples.shape[0], lower=True)
+    CJtranspose = solve_triangular(L.T, Z, lower=False)
+    return jax.lax.stop_gradient(CJtranspose)
+
+def information_theoretic_dimension_reduction(key: Any,
+    J_samples: jnp.ndarray,
+    noise_variance: float,
+    max_input_dimension: int,
+    max_output_dimension: int,
+    prior_precision: jnp.ndarray,
+    prior_covariance: jnp.ndarray = None
+    ):
+    start = time.time() 
+    input_encodec_dict= estimate_input_active_subspace(key=key, 
+                                                            J_samples=J_samples,
+                                                            noise_variance=noise_variance,
+                                                            prior_precision=prior_precision,
+                                                            subspace_rank=max_input_dimension)
+    input_computation_time = time.time() - start
+    print("randLAX computation time", input_computation_time)
+    input_encodec_dict['computation_time'] =input_computation_time
+
+    start = time.time()
+    output_encodec_dict = estimate_output_informative_subspace(key=key,
+                                                                J_samples=J_samples,
+                                                                noise_variance=noise_variance,
+                                                                subspace_rank=max_output_dimension,
+                                                                prior_precision=prior_precision,
+                                                                prior_covariance=prior_covariance,
+                                                                )
+    output_computation_time = time.time() - start
+    output_encodec_dict['computation_time'] =output_computation_time
+
+    return {'input': input_encodec_dict, 'output': output_encodec_dict}
+
+
+def estimate_input_active_subspace(
     key: Any,
     J_samples: jnp.ndarray,
     noise_variance: float,
@@ -57,12 +99,13 @@ def input_active_subspace_encoder_decoder(
     }
 
 
-def output_informative_subspace_encoder_decoder(
+def estimate_output_informative_subspace(
     key: Any,
     J_samples: jnp.ndarray,
-    prior_covariance: jnp.ndarray,
     noise_variance: float,
-    r: int,
+    subspace_rank: int,
+    prior_covariance: jnp.ndarray = None,
+    prior_precision: jnp.ndarray = None
 ) -> Dict[str, jnp.ndarray]:
     """
     Compute the rank-r encoder and decoder for informative data.
@@ -81,9 +124,11 @@ def output_informative_subspace_encoder_decoder(
       key: Random key for the eigendecomposition.
       J_samples: 3D array of Jacobian samples with shape (N, a, b), where N is
                  the number of samples.
-      prior_covariance: 2D prior covariance matrix.
       noise_variance: positive scalar.
       r: Target rank for the eigendecomposition.
+      prior_covariance: 2D prior covariance matrix.
+      prior_precision: 2D prior precision matrix. If prior covariance is not
+        provided, the prior precision will be used to perform a solve
 
     Returns:
       Dict with:
@@ -91,16 +136,22 @@ def output_informative_subspace_encoder_decoder(
         "decoder": 2D array (scaled eigenvectors).
         "encoder": 2D array (inversely scaled eigenvectors).
     """
-    #TODO: expose p, power iterations to the interface, allow passing of prior_precision and solving in-line via batch linear algebra
-    A = jnp.einsum(
-        'iab,bc,idc->ad',
-        J_samples,
-        prior_covariance / noise_variance,
-        J_samples / J_samples.shape[0]
-    )
+    if prior_covariance is None:
+        A = jnp.einsum(
+            'iab,icb->ac',
+            J_samples/noise_variance,
+            __batch_cholesky_solve( prior_precision, J_samples.T/ J_samples.shape[0])
+        )
+    else:
+        A = jnp.einsum(
+            'iab,bc,idc->ad',
+            J_samples,
+            prior_covariance / noise_variance,
+            J_samples / J_samples.shape[0]
+        )
     computed_eigvals, computed_evecs = \
         double_pass_randomized_eigh(
-            key, A, r, p=r + 10, power_iters=1
+            key, A, subspace_rank, p=subspace_rank + 15, power_iters=2
         )
     noise_sigma = jnp.sqrt(noise_variance)
     return {
