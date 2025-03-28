@@ -17,6 +17,7 @@ authors = [
 dependencies = [
     "jax",
     "jaxlib",
+    "randlax"
 ]
 
 [project.optional-dependencies]
