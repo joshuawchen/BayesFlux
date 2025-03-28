@@ -4,8 +4,7 @@ from typing import Any, Dict
 import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
-from randlax import (double_pass_randomized_eigh,
-                     double_pass_randomized_gen_eigh)
+from randlax import double_pass_randomized_eigh, double_pass_randomized_gen_eigh
 
 
 @jax.jit
@@ -16,9 +15,7 @@ def __JCJtransp(J: jnp.ndarray, L: jnp.ndarray) -> jnp.ndarray:
     return Y.T @ Y
 
 
-def average_JCJtranspose(
-    J_samples: jnp.ndarray, prior_precision: jnp.ndarray
-) -> jnp.ndarray:
+def average_JCJtranspose(J_samples: jnp.ndarray, prior_precision: jnp.ndarray) -> jnp.ndarray:
     L = jnp.linalg.cholesky(prior_precision)
     # Average over the batch dimension (axis=0)
     return jnp.mean(jax.vmap(lambda J: __JCJtransp(J, L))(J_samples), axis=0)
@@ -41,9 +38,7 @@ def information_theoretic_dimension_reduction(
         prior_precision=prior_precision,
         subspace_rank=max_input_dimension,
     )
-    input_computation_time = time.time() - start
-    print("randLAX computation time", input_computation_time)
-    input_encodec_dict["computation_time"] = input_computation_time
+    input_encodec_dict["computation_time"] = time.time() - start
 
     start = time.time()
     output_encodec_dict = estimate_output_informative_subspace(
@@ -54,9 +49,7 @@ def information_theoretic_dimension_reduction(
         prior_precision=prior_precision,
         prior_covariance=prior_covariance,
     )
-    output_computation_time = time.time() - start
-    output_encodec_dict["computation_time"] = output_computation_time
-
+    output_encodec_dict["computation_time"] = time.time() - start
     return {"input": input_encodec_dict, "output": output_encodec_dict}
 
 
@@ -95,10 +88,7 @@ def estimate_input_active_subspace(
         "encoder": 2D array computed as prior_precision @ eigenvectors.
     """
 
-    A = (
-        jnp.einsum("iab,iac->bc", J_samples, J_samples / J_samples.shape[0])
-        / noise_variance
-    )
+    A = jnp.einsum("iab,iac->bc", J_samples, J_samples / J_samples.shape[0]) / noise_variance
     computed_eigvals, computed_evecs = double_pass_randomized_gen_eigh(
         key,
         A,

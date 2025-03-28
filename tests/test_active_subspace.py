@@ -18,7 +18,7 @@ import random
 import jax
 import jax.numpy as jnp
 
-from bayesflux import estimate_input_active_subspace
+from bayesflux.subspace_detection import estimate_input_active_subspace
 
 
 def test_ridge_likelihood():
@@ -43,9 +43,7 @@ def test_ridge_likelihood():
 
         # Sample from standard normal and compute Jacobians
         x_samples = jax.random.normal(subkey2, (num_samples, dim))
-        J_samples = jax.vmap(lambda x: grad_f(x).reshape(1, -1))(
-            x_samples
-        )  # shape (N, 1, d)
+        J_samples = jax.vmap(lambda x: grad_f(x).reshape(1, -1))(x_samples)  # shape (N, 1, d)
 
         # Prior precision = Identity (standard normal)
         prior_precision = jnp.eye(dim)
