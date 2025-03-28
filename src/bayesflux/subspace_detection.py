@@ -4,7 +4,8 @@ from typing import Any, Dict
 import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
-from randlax import double_pass_randomized_eigh, double_pass_randomized_gen_eigh
+from randlax import (double_pass_randomized_eigh,
+                     double_pass_randomized_gen_eigh)
 
 
 @jax.jit

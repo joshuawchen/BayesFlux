@@ -5,7 +5,8 @@ import jax.numpy as jnp
 
 # Import the encoder functions.
 from bayesflux.encoding import encode_input_output_Jacobian_data
-from bayesflux.subspace_detection import information_theoretic_dimension_reduction
+from bayesflux.subspace_detection import \
+    information_theoretic_dimension_reduction
 
 
 def test_no_encoders():

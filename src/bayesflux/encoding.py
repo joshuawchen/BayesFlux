@@ -1,3 +1,4 @@
+import time
 from typing import Dict, Optional
 
 import jax
@@ -118,8 +119,21 @@ def encode_input_output_Jacobian_data(
         "encoded_outputs": encoded outputs (or original if not provided).
         "reduced_Jacobians": reduced jacobians (or original if not reduced).
     """
+    inputs = jax.device_put(inputs) if inputs is not None else None
+    outputs = jax.device_put(outputs) if outputs is not None else None
+    input_decoder = jax.device_put(input_decoder) if input_decoder is not None else None
+    input_encoder = jax.device_put(input_encoder) if input_encoder is not None else None
+    output_encoder = jax.device_put(output_encoder) if output_encoder is not None else None
+
+    start = time.time()
     encoded_inputs = encode_inputs(inputs=inputs, encoder=input_encoder) if input_encoder is not None else inputs
+    input_encoding_time = time.time() - start
+
+    start = time.time()
     encoded_outputs = encode_outputs(outputs=outputs, encoder=output_encoder) if output_encoder is not None else outputs
+    output_encoding_time = time.time() - start
+
+    start = time.time()
     reduced_Jacobians = encode_Jacobians(
         jacobians=jacobians,
         input_decoder=input_decoder,
@@ -127,9 +141,12 @@ def encode_input_output_Jacobian_data(
         batched=batched,
         batch_size=batch_size,
     )
-
+    jacobian_encoding_time = time.time() - start
     return {
         "encoded_inputs": encoded_inputs,
         "encoded_outputs": encoded_outputs,
         "reduced_Jacobians": reduced_Jacobians,
+        "input_encoding_time": input_encoding_time,
+        "output_encoding_time": output_encoding_time,
+        "Jacobian_encoding_time": jacobian_encoding_time,
     }
