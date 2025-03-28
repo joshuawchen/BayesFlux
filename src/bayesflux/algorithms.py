@@ -5,14 +5,27 @@ import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 
-from bayesflux import double_pass_randomized_gen_eigh, double_pass_randomized_eigh
+from randlax import double_pass_randomized_gen_eigh, double_pass_randomized_eigh
 
-def __batch_cholesky_solve(prior_precision: jnp.ndarray,
-                           J_samples: jnp.ndarray):
+@jax.jit
+def __compute_JCJtranspose(J: jnp.ndarray, L:jnp.ndarray) -> jnp.ndarray:
+    # Solve L Y = J.T for Y.
+    Y = solve_triangular(L, J.T, lower=True)
+    # Then, J C^-1 J.T = Y.T @ Y
+    return Y.T @ Y
+
+def average_JCJtranspose(J_samples: jnp.ndarray, prior_precision:jnp.ndarray) -> jnp.ndarray:
     L = jnp.linalg.cholesky(prior_precision)
-    Z = solve_triangular(L, J_samples / J_samples.shape[0], lower=True)
-    CJtranspose = solve_triangular(L.T, Z, lower=False)
-    return jax.lax.stop_gradient(CJtranspose)
+    # Average over the batch dimension (axis=0)
+    return jnp.mean(jax.vmap(lambda J: __compute_JCJtranspose(J, L))(J_samples), axis=0)
+
+# def __batch_cholesky_solve(prior_precision: jnp.ndarray,
+#                            J_samples: jnp.ndarray):
+    
+#     L = jnp.linalg.cholesky(prior_precision)
+#     Z = solve_triangular(L, J_samples / J_samples.shape[0], lower=True)
+#     CJtranspose = solve_triangular(L.T, Z, lower=False)
+#     return jax.lax.stop_gradient(CJtranspose)
 
 def information_theoretic_dimension_reduction(key: Any,
     J_samples: jnp.ndarray,
@@ -137,11 +150,7 @@ def estimate_output_informative_subspace(
         "encoder": 2D array (inversely scaled eigenvectors).
     """
     if prior_covariance is None:
-        A = jnp.einsum(
-            'iab,icb->ac',
-            J_samples/noise_variance,
-            __batch_cholesky_solve( prior_precision, J_samples.T/ J_samples.shape[0])
-        )
+        A = average_JCJtranspose(J_samples, prior_precision)
     else:
         A = jnp.einsum(
             'iab,bc,idc->ad',
