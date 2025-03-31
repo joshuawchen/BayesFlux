@@ -24,7 +24,7 @@ def test_no_encoders():
     assert results["encoded_inputs"].shape == (num_samples, input_dim)
     assert results["encoded_outputs"].shape == (num_samples, output_dim)
     # Jacobians remain unchanged.
-    assert results["reduced_Jacobians"].shape == (num_samples, output_dim, input_dim)
+    assert results["encoded_Jacobians"].shape == (num_samples, output_dim, input_dim)
 
 
 def test_input_encoder_only():
@@ -51,7 +51,7 @@ def test_input_encoder_only():
 
     assert results["encoded_inputs"].shape == (num_samples, reduced_in)
     assert results["encoded_outputs"].shape == (num_samples, output_dim)
-    assert results["reduced_Jacobians"].shape == (num_samples, output_dim, input_dim)
+    assert results["encoded_Jacobians"].shape == (num_samples, output_dim, input_dim)
 
 
 def test_output_encoder_only():
@@ -79,7 +79,7 @@ def test_output_encoder_only():
     assert results["encoded_outputs"].shape == (num_samples, reduced_out)
     assert results["encoded_inputs"].shape == (num_samples, input_dim)
     # Jacobians are reduced only along the output dimension.
-    assert results["reduced_Jacobians"].shape == (num_samples, reduced_out, input_dim)
+    assert results["encoded_Jacobians"].shape == (num_samples, reduced_out, input_dim)
 
 
 def test_both_encoders_with_decoder():
@@ -116,7 +116,7 @@ def test_both_encoders_with_decoder():
     assert results["encoded_outputs"].shape == (num_samples, reduced_out)
     # With both reductions, jacobians become
     # (num_samples, reduced_out, reduced_in)
-    assert results["reduced_Jacobians"].shape == (num_samples, reduced_out, reduced_in)
+    assert results["encoded_Jacobians"].shape == (num_samples, reduced_out, reduced_in)
 
 
 def test_information_theoretic_dimension_reduction_bayesian_inference():
@@ -200,9 +200,9 @@ def test_information_theoretic_dimension_reduction_bayesian_inference():
     # Verify that the shapes match the specified subspace dimensions.
     assert encoded_data["encoded_inputs"].shape == (num_samples, max_input_dimension)
     assert encoded_data["encoded_outputs"].shape == (num_samples, max_output_dimension)
-    # The reduced Jacobians should have shape
+    # The encoded Jacobians should have shape
     # (num_samples, max_output_dimension, max_input_dimension)
-    assert encoded_data["reduced_Jacobians"].shape == (
+    assert encoded_data["encoded_Jacobians"].shape == (
         num_samples,
         max_output_dimension,
         max_input_dimension,
