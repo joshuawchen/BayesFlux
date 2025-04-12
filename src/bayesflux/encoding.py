@@ -2,12 +2,13 @@ import time
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Tuple
 
-import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import device_put
+from numpy.typing import ArrayLike
 
 
-class FunctionAndDerivatives(ABC):
+class InputOuputAndDerivativesSampler(ABC):
     """
     Interface for functions and their derivatives for convenient training data
     sampling. This class is meant for objects that work solely with NumPy arrays.
@@ -113,8 +114,15 @@ class FunctionAndDerivatives(ABC):
         return times
 
 
-def generate_full_Jacobian_data_for_computing_dimension_reduction(
-    func_wrapper: FunctionAndDerivatives, N_samples: int
+class GaussianInputOuputAndDerivativesSampler(InputOuputAndDerivativesSampler):
+
+    @property
+    def precision(self) -> ArrayLike:
+        return self._precision
+
+
+def generate_full_Jacobian_data_for_computing_derivative_informed_dimension_reduction(
+    sampler_wrapper: InputOuputAndDerivativesSampler, N_samples: int
 ) -> Dict[str, np.ndarray]:
     """
     Generate full Jacobian data for dimension reduction.
@@ -123,17 +131,18 @@ def generate_full_Jacobian_data_for_computing_dimension_reduction(
     requires an object that accepts NumPy arrays as input and returns NumPy arrays.
 
     Parameters:
-        func_wrapper: An object implementing FunctionAndDerivatives.
+        sampler_wrapper: An object implementing InputOuputAndDerivativesSampler.
         N_samples: The number of samples to generate.
 
     Returns:
         A dictionary containing training data and optional computation times.
     """
-    return generate_reduced_training_data(func_wrapper, N_samples)
+    return generate_reduced_training_data(sampler_wrapper=sampler_wrapper, N_samples=N_samples)
 
 
 def generate_reduced_training_data(
-    func_wrapper: FunctionAndDerivatives,
+    *,
+    sampler_wrapper: InputOuputAndDerivativesSampler,
     N_samples: int,
     output_encoder: Optional[np.ndarray] = None,
     input_decoder: Optional[np.ndarray] = None,
@@ -145,57 +154,59 @@ def generate_reduced_training_data(
     This function repeatedly samples inputs and computes the corresponding
     function outputs and matrix–Jacobian products. It then applies optional
     encoding/decoding to reduce the dimensionality of the inputs, outputs, and
-    Jacobian products. This function requires that the provided func_wrapper works
+    Jacobian products. This function requires that the provided sampler_wrapper works
     entirely with NumPy arrays.
 
     Parameters:
-        func_wrapper: An object implementing FunctionAndDerivatives that works with
-            NumPy arrays.
+        sampler_wrapper: An object implementing InputOuputAndDerivativesSampler that works
+            with NumPy arrays.
         N_samples: The number of samples to generate.
         output_encoder: Optional; a NumPy array of shape
-            (func_wrapper.output_dimension, reduced_out_dim) to encode outputs.
+            (sampler_wrapper.output_dimension, reduced_out_dim) to encode outputs.
         input_decoder: Optional; a NumPy array of shape
-            (func_wrapper.input_dimension, reduced_in_dim) to reduce the input
+            (sampler_wrapper.input_dimension, reduced_in_dim) to reduce the input
             dimension of the Jacobian product.
         input_encoder: Optional; a NumPy array of shape
-            (func_wrapper.input_dimension, reduced_in_dim) to encode inputs.
+            (sampler_wrapper.input_dimension, reduced_in_dim) to encode inputs.
 
     Returns:
         A dictionary with keys:
           'inputs': A NumPy array of shape (N_samples, D_in_encoded), where
               D_in_encoded equals reduced_in_dim if input_encoder is provided,
-              otherwise func_wrapper.input_dimension.
+              otherwise sampler_wrapper.input_dimension.
           'outputs': A NumPy array of shape (N_samples, D_out_encoded), where
               D_out_encoded equals reduced_out_dim if output_encoder is provided,
-              otherwise func_wrapper.output_dimension.
+              otherwise sampler_wrapper.output_dimension.
           'Jacobians': A NumPy array whose shape depends on the provided
               encoders/decoders:
                 - (N_samples, reduced_out_dim, reduced_in_dim) if both
                   output_encoder and input_decoder are provided.
-                - (N_samples, reduced_out_dim, func_wrapper.input_dimension) if only
+                - (N_samples, reduced_out_dim, sampler_wrapper.input_dimension) if only
                   output_encoder is provided.
-                - (N_samples, func_wrapper.output_dimension, reduced_in_dim) if only
+                - (N_samples, sampler_wrapper.output_dimension, reduced_in_dim) if only
                   input_decoder is provided.
-                - (N_samples, func_wrapper.output_dimension,
-                  func_wrapper.input_dimension) if neither is provided.
+                - (N_samples, sampler_wrapper.output_dimension,
+                  sampler_wrapper.input_dimension) if neither is provided.
           'output_computation_time': The time for computing outputs (if set).
           'Jacobian_computation_time': The time for computing the Jacobian product
               (if set).
     """
-    encoded_input_dimension = input_encoder.shape[1] if input_encoder is not None else func_wrapper.input_dimension
-    encoded_output_dimension = output_encoder.shape[1] if output_encoder is not None else func_wrapper.output_dimension
+    encoded_input_dimension = input_encoder.shape[1] if input_encoder is not None else sampler_wrapper.input_dimension
+    encoded_output_dimension = (
+        output_encoder.shape[1] if output_encoder is not None else sampler_wrapper.output_dimension
+    )
     print("Preparing for sampling...")
     encoded_inputs = np.empty((N_samples, encoded_input_dimension))
     encoded_outputs = np.empty((N_samples, encoded_output_dimension))
     encoded_jacobian_prod = np.empty((N_samples, encoded_output_dimension, encoded_input_dimension))
 
-    func_wrapper.set_matrix_jacobian_prod(matrix=output_encoder)
+    sampler_wrapper.set_matrix_jacobian_prod(matrix=output_encoder)
     print("Sampling...")
     input_encoding_time = 0.0
     output_encoding_time = 0.0
     jacobian_encoding_time = 0.0
     for i in range(N_samples):
-        input_sample = func_wrapper.sample_input()
+        input_sample = sampler_wrapper.sample_input()
         if input_encoder is not None:
             start = time.time()
             encoded_inputs[i] = input_sample @ input_encoder
@@ -203,7 +214,7 @@ def generate_reduced_training_data(
 
         else:
             encoded_inputs[i] = input_sample
-        output_i, matrix_jacobian_prod_i = func_wrapper.value_and_matrix_jacobian_prod(input_sample)
+        output_i, matrix_jacobian_prod_i = sampler_wrapper.value_and_matrix_jacobian_prod(input_sample)
         if output_encoder is not None:
             start = time.time()
             encoded_outputs[i] = output_i @ output_encoder
@@ -218,7 +229,7 @@ def generate_reduced_training_data(
         else:
             encoded_jacobian_prod[i] = matrix_jacobian_prod_i
 
-    computation_times = func_wrapper.extract_and_clear_computation_times()
+    computation_times = sampler_wrapper.extract_and_clear_computation_times()
     input_key = "encoded_inputs" if input_encoder is not None else "inputs"
     output_key = "encoded_output" if output_encoder is not None else "outputs"
     jacobian_key = "encoded_Jacobians" if (input_decoder is not None or output_encoder is not None) else "Jacobians"
@@ -285,6 +296,8 @@ def encode_Jacobians(
       output_encoder: Optional; jax array of shape
         (output_dim, reduced_out_dim).
       batched: Process reduction in batches (default: False).
+        If batched, the jacobians may reside on the cpu a priori.
+        They will be moved to gpu to be reduced.
       batch_size: Batch size when batched is True (default: 50).
 
     Returns:
@@ -313,7 +326,7 @@ def encode_Jacobians(
         reduced_batches = []
         for start in range(0, total_len, batch_size):
             end = min(start + batch_size, total_len)
-            batch = jax.device_put(jacobians[start:end])
+            batch = device_put(jacobians[start:end])
             reduced_batches.append(reduce_batch(batch))
         return jnp.concatenate(reduced_batches, axis=0)
     else:
@@ -353,11 +366,11 @@ def encode_input_output_Jacobian_data(
         "encoded_outputs": encoded outputs (or original if not provided).
         "reduced_Jacobians": reduced jacobians (or original if not reduced).
     """
-    inputs = jax.device_put(inputs) if inputs is not None else None
-    outputs = jax.device_put(outputs) if outputs is not None else None
-    input_decoder = jax.device_put(input_decoder) if input_decoder is not None else None
-    input_encoder = jax.device_put(input_encoder) if input_encoder is not None else None
-    output_encoder = jax.device_put(output_encoder) if output_encoder is not None else None
+    inputs = device_put(inputs) if inputs is not None else None
+    outputs = device_put(outputs) if outputs is not None else None
+    input_decoder = device_put(input_decoder) if input_decoder is not None else None
+    input_encoder = device_put(input_encoder) if input_encoder is not None else None
+    output_encoder = device_put(output_encoder) if output_encoder is not None else None
 
     start = time.time()
     encoded_inputs = encode_inputs(inputs=inputs, encoder=input_encoder) if input_encoder is not None else inputs
