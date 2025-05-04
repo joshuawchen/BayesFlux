@@ -67,12 +67,10 @@ class InputOuputAndDerivativesSampler(ABC):
         self._init_value()
 
     @abstractmethod
-    def _init_value(self) -> None:
-        ...
+    def _init_value(self) -> None: ...
 
     @abstractmethod
-    def _init_matrix_jacobian_prod(self, *, matrix: Optional[np.ndarray] = None) -> None:
-        ...
+    def _init_matrix_jacobian_prod(self, *, matrix: Optional[np.ndarray] = None) -> None: ...
 
     def value(self, input_sample: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -88,12 +86,11 @@ class InputOuputAndDerivativesSampler(ABC):
         """
         start = time.time()
         value = self._value(input_sample)
-        self.output_computation_time += time.time()-start     
+        self.output_computation_time += time.time() - start
         return value
 
     @abstractmethod
-    def _value(self, input_sample: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        ...
+    def _value(self, input_sample: np.ndarray) -> Tuple[np.ndarray, np.ndarray]: ...
 
     @abstractmethod
     def value_and_matrix_jacobian_prod(self, input_sample: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -177,9 +174,7 @@ def generate_full_Jacobian_data(
     return generate_reduced_training_data(sampler_wrapper=sampler_wrapper, N_samples=N_samples, generate_Jacobians=True)
 
 
-def generate_output_data(
-   *, sampler_wrapper: InputOuputAndDerivativesSampler, N_samples: int
-) -> Dict[str, np.ndarray]:
+def generate_output_data(*, sampler_wrapper: InputOuputAndDerivativesSampler, N_samples: int) -> Dict[str, np.ndarray]:
     """
     Generate full Jacobian data for dimension reduction.
 
@@ -259,7 +254,9 @@ def generate_reduced_training_data(
     sampler_wrapper.init_value()
     if generate_Jacobians:
         encoded_jacobian_prod = np.empty((N_samples, encoded_output_dimension, encoded_input_dimension))
-        sampler_wrapper.init_matrix_jacobian_prod(matrix=output_encoder if output_encoder is not None else np.identity(encoded_output_dimension))
+        sampler_wrapper.init_matrix_jacobian_prod(
+            matrix=output_encoder if output_encoder is not None else np.identity(encoded_output_dimension)
+        )
 
     print("Sampling...")
     input_encoding_time = 0.0
