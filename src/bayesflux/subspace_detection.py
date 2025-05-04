@@ -4,7 +4,8 @@ from typing import Any, Dict
 import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
-from randlax import double_pass_randomized_eigh, double_pass_randomized_gen_eigh
+from randlax import (double_pass_randomized_eigh,
+                     double_pass_randomized_gen_eigh)
 
 
 @jax.jit
@@ -30,6 +31,7 @@ def information_theoretic_dimension_reduction(
     prior_precision: jnp.ndarray,
     prior_covariance: jnp.ndarray = None,
 ):
+    """Document that this is for both input/output dimension reduction"""
     start = time.time()
     input_encodec_dict = estimate_input_active_subspace(
         key=key,
@@ -51,6 +53,104 @@ def information_theoretic_dimension_reduction(
     )
     output_encodec_dict["computation_time"] = time.time() - start
     return {"input": input_encodec_dict, "output": output_encodec_dict}
+
+
+def moment_based_dimension_reduction(
+    key: Any,
+    max_input_dimension: int,
+    max_output_dimension: int,
+    input_covariance_matrix: jnp.ndarray,
+    L2_inner_product_matrix: jnp.ndarray,
+    output_samples: jnp.ndarray,
+):
+    start = time.time()
+    input_encodec_dict = estimate_input_Karhunen_Loeve_subspace(
+        key=key,
+        input_covariance_matrix=input_covariance_matrix,
+        L2_inner_product_matrix=L2_inner_product_matrix,
+        subspace_rank=max_input_dimension,
+    )
+    input_encodec_dict["computation_time"] = time.time() - start
+    start = time.time()
+    output_encodec_dict = estimate_output_Proper_Orthogonal_Decomposition_subspace(
+        key=key,
+        output_samples=output_samples,
+        subspace_rank=max_output_dimension,
+    )
+    output_encodec_dict["computation_time"] = time.time() - start
+    return {"input": input_encodec_dict, "output": output_encodec_dict}
+
+
+def estimate_output_Proper_Orthogonal_Decomposition_subspace(
+    key: Any,
+    output_samples,
+    subspace_rank: int,
+) -> Dict[str, jnp.ndarray]:
+    """
+    Compute the rank-r Proper Orthogonal Decomposition of output random variables
+    and produce subspace encoder and decoder matrices.
+
+    This is equivalent to producing the eigenpairs of a truncated SVD of output samples.
+
+    """
+    # SVD of output samples
+    # return output_encodec_dict
+    N = output_samples.shape[0]
+    C = jnp.einsum("nd,ne->de", output_samples, output_samples) / (N - 1)
+    computed_eigvals, computed_evecs = double_pass_randomized_eigh(
+        key, C, subspace_rank, subspace_rank + 15, power_iters=2
+    )
+    return {
+        "eigenvalues": computed_eigvals,
+        "decoder": computed_evecs,
+        "encoder": computed_evecs,
+    }
+
+
+def estimate_input_Karhunen_Loeve_subspace(
+    key: Any,
+    input_covariance_matrix: jnp.ndarray,
+    L2_inner_product_matrix: jnp.ndarray,
+    subspace_rank: int,
+) -> Dict[str, jnp.ndarray]:
+    """ "
+    Compute the rank-r Karhunen Loeve (KL) expansion truncation of a Gaussian random variable
+    and produce subspace encoder and decoder matrices.
+
+    This function is applicable for finding the dominant eigenfunctions of a random variable
+    distributed according to a Gaussian prior N(0, Cov), where Cov = input_covariance_matrix.
+    It assumes the usage of a matrix (often a  Mass Matrix) used to define the L2 inner product,
+    abbr as M. Thus, truncation of the KL expansion amounts to solving for the dominant eigenvectors
+    x^i/values v^i such that Cov x^i = lambda^i M x^i. We do this via a double-pass randomized
+    generalized eigendecomposition. The decoder is the eigenvectors, while the encoder is given by
+    M @ eigenvectors.
+
+    Parameters:
+      key: Random key for the randomized eigendecomposition.
+      input_covariance_matrix: An 2D dense covariance matrix array.
+      L2_inner_product_matrix: A 2D matrix representing the L2 inner product.
+      r: Target rank for the eigendecomposition.
+
+    Returns:
+      Dict with:
+        "eigenvalues": 1D array of computed eigenvalues.
+        "decoder": 2D array of computed eigenvectors.
+        "encoder": 2D array computed as prior_precision @ eigenvectors.
+    """
+    computed_eigvals, computed_evecs = double_pass_randomized_gen_eigh(
+        key,
+        input_covariance_matrix,
+        L2_inner_product_matrix,
+        subspace_rank,
+        subspace_rank + 15,
+        power_iters=2,
+        reorthog_iter=5,
+    )
+    return {
+        "eigenvalues": computed_eigvals,
+        "decoder": computed_evecs,
+        "encoder": L2_inner_product_matrix @ computed_evecs,
+    }
 
 
 def estimate_input_active_subspace(
@@ -87,7 +187,6 @@ def estimate_input_active_subspace(
         "decoder": 2D array of computed eigenvectors.
         "encoder": 2D array computed as prior_precision @ eigenvectors.
     """
-
     A = jnp.einsum("iab,iac->bc", J_samples, J_samples / J_samples.shape[0]) / noise_variance
     computed_eigvals, computed_evecs = double_pass_randomized_gen_eigh(
         key,
