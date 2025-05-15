@@ -121,6 +121,7 @@ def encode_input_output_Jacobian_data(
         "encoded_outputs": encoded outputs (or original if not provided).
         "reduced_Jacobians": reduced jacobians (or original if not reduced).
     """
+    print("Placing all data on GPU if not already")
     inputs = device_put(inputs) if inputs is not None else None
     outputs = device_put(outputs) if outputs is not None else None
     input_decoder = device_put(input_decoder) if input_decoder is not None else None

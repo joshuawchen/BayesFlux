@@ -4,8 +4,7 @@ from typing import Any, Dict
 import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
-from randlax import (double_pass_randomized_eigh,
-                     double_pass_randomized_gen_eigh)
+from randlax import double_pass_randomized_eigh, double_pass_randomized_gen_eigh
 
 
 @jax.jit
@@ -26,58 +25,69 @@ def information_theoretic_dimension_reduction(
     key: Any,
     J_samples: jnp.ndarray,
     noise_variance: float,
-    max_input_dimension: int,
-    max_output_dimension: int,
     prior_precision: jnp.ndarray,
+    max_input_dimension: int = None,
+    max_output_dimension: int = None,
     prior_covariance: jnp.ndarray = None,
 ):
     """Document that this is for both input/output dimension reduction"""
-    start = time.time()
-    input_encodec_dict = estimate_input_active_subspace(
-        key=key,
-        J_samples=J_samples,
-        noise_variance=noise_variance,
-        prior_precision=prior_precision,
-        subspace_rank=max_input_dimension,
-    )
-    input_encodec_dict["computation_time"] = time.time() - start
-
-    start = time.time()
-    output_encodec_dict = estimate_output_informative_subspace(
-        key=key,
-        J_samples=J_samples,
-        noise_variance=noise_variance,
-        subspace_rank=max_output_dimension,
-        prior_precision=prior_precision,
-        prior_covariance=prior_covariance,
-    )
-    output_encodec_dict["computation_time"] = time.time() - start
+    if max_input_dimension is not None:
+        start = time.time()
+        input_encodec_dict = estimate_input_active_subspace(
+            key=key,
+            J_samples=J_samples,
+            noise_variance=noise_variance,
+            prior_precision=prior_precision,
+            subspace_rank=max_input_dimension,
+        )
+        input_encodec_dict["computation_time"] = time.time() - start
+    else:
+        input_encodec_dict = dict()
+    if max_output_dimension is not None:
+        start = time.time()
+        output_encodec_dict = estimate_output_informative_subspace(
+            key=key,
+            J_samples=J_samples,
+            noise_variance=noise_variance,
+            subspace_rank=max_output_dimension,
+            prior_precision=prior_precision,
+            prior_covariance=prior_covariance,
+        )
+        output_encodec_dict["computation_time"] = time.time() - start
+    else:
+        output_encodec_dict = dict()
     return {"input": input_encodec_dict, "output": output_encodec_dict}
 
 
 def moment_based_dimension_reduction(
     key: Any,
-    max_input_dimension: int,
-    max_output_dimension: int,
-    input_covariance_matrix: jnp.ndarray,
-    L2_inner_product_matrix: jnp.ndarray,
-    output_samples: jnp.ndarray,
+    input_covariance_matrix: jnp.ndarray = None,
+    L2_inner_product_matrix: jnp.ndarray = None,
+    output_samples: jnp.ndarray = None,
+    max_input_dimension: int = None,
+    max_output_dimension: int = None,
 ):
-    start = time.time()
-    input_encodec_dict = estimate_input_Karhunen_Loeve_subspace(
-        key=key,
-        input_covariance_matrix=input_covariance_matrix,
-        L2_inner_product_matrix=L2_inner_product_matrix,
-        subspace_rank=max_input_dimension,
-    )
-    input_encodec_dict["computation_time"] = time.time() - start
-    start = time.time()
-    output_encodec_dict = estimate_output_Proper_Orthogonal_Decomposition_subspace(
-        key=key,
-        output_samples=output_samples,
-        subspace_rank=max_output_dimension,
-    )
-    output_encodec_dict["computation_time"] = time.time() - start
+    if max_input_dimension is not None:
+        start = time.time()
+        input_encodec_dict = estimate_input_Karhunen_Loeve_subspace(
+            key=key,
+            input_covariance_matrix=input_covariance_matrix,
+            L2_inner_product_matrix=L2_inner_product_matrix,
+            subspace_rank=max_input_dimension,
+        )
+        input_encodec_dict["computation_time"] = time.time() - start
+    else:
+        input_encodec_dict = dict()
+    if max_output_dimension is not None:
+        start = time.time()
+        output_encodec_dict = estimate_output_Proper_Orthogonal_Decomposition_subspace(
+            key=key,
+            output_samples=output_samples,
+            subspace_rank=max_output_dimension,
+        )
+        output_encodec_dict["computation_time"] = time.time() - start
+    else:
+        output_encodec_dict = dict()
     return {"input": input_encodec_dict, "output": output_encodec_dict}
 
 
