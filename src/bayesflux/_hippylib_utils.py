@@ -12,7 +12,7 @@ except ImportError as e:
     _HIPPYLIB_AVAILABLE = False
 
 import numpy as np
-import bayesflux as bf
+from .generation import GaussianInputOuputAndDerivativesSampler
 
 if _HIPPYLIB_AVAILABLE:
 
@@ -387,7 +387,7 @@ if _HIPPYLIB_AVAILABLE:
         A = ss.csr_matrix((val, col, row)).todense()
         return A, M
 
-    class __hippylibObservableWrapper(bf.GaussianInputOuputAndDerivativesSampler):
+    class __hippylibObservableWrapper(GaussianInputOuputAndDerivativesSampler):
         def __init__(self, model, observable, random_seed):  # relies on observable Jacobian!
             # iniitalize variables
             self.problem = model.problem

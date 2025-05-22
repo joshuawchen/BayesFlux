@@ -118,11 +118,12 @@ def test_information_theoretic_dimension_reduction_bayesian_inference():
         key=key,
         J_samples=J_samples,
         noise_variance=noise_variance,
-        max_input_dimension=max_input_dimension,
-        max_output_dimension=max_output_dimension,
         prior_precision=prior_precision,
         prior_covariance=prior_covariance,
+        max_input_dimension=max_input_dimension,
+        max_output_dimension=max_output_dimension,
     )
+
     # reduction_dict is expected to have keys "input" and "output", each
     # containing an "encoder" and "decoder".
 
@@ -187,7 +188,7 @@ def test_moment_based_dimension_reduction():
 
     # Run the dimension reduction
     result = moment_based_dimension_reduction(
-        key, max_input_dimension, max_output_dimension, input_cov, l2_mat, out_samps
+        key, input_cov, l2_mat, out_samps, max_input_dimension, max_output_dimension
     )
 
     # Extract computed eigenvalues
