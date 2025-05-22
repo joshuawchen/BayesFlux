@@ -1,6 +1,7 @@
-import time
+import time as gentime
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Tuple
+from math import ceil
+from typing import Callable, Dict, Optional, Tuple
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -84,9 +85,9 @@ class InputOuputAndDerivativesSampler(ABC):
             - A NumPy array of shape (output_dimension,) representing the
                 function value.
         """
-        start = time.time()
+        start = gentime.time()
         value = self._value(input_sample)
-        self.output_computation_time += time.time() - start
+        self.output_computation_time += gentime.time() - start
         return value
 
     @abstractmethod
@@ -263,16 +264,16 @@ def generate_reduced_training_data(
             matrix=output_encoder if output_encoder is not None else np.identity(encoded_output_dimension)
         )
 
-    print("Sampling...")
+    print("Sampling...", flush=True)
     input_encoding_time = 0.0
     output_encoding_time = 0.0
     jacobian_decoding_time = 0.0
     for i in range(N_samples):
         input_sample = sampler_wrapper.sample_input()
         if input_encoder is not None:
-            start = time.time()
+            start = gentime.time()
             encoded_inputs[i] = input_sample @ input_encoder
-            input_encoding_time += time.time() - start
+            input_encoding_time += gentime.time() - start
 
         else:
             if reduce_input_before:
@@ -285,19 +286,19 @@ def generate_reduced_training_data(
         else:
             output_i = sampler_wrapper.value(input_sample)
         if output_encoder is not None:
-            start = time.time()
+            start = gentime.time()
             encoded_outputs[i] = output_i @ output_encoder
-            output_encoding_time += time.time() - start
+            output_encoding_time += gentime.time() - start
         else:
             encoded_outputs[i] = output_i
         if generate_Jacobians:
             if input_decoder is not None:
-                start = time.time()
+                start = gentime.time()
                 encoded_jacobian_prod[i] = matrix_jacobian_prod_i @ input_decoder
-                jacobian_decoding_time += time.time() - start
+                jacobian_decoding_time += gentime.time() - start
             else:
                 encoded_jacobian_prod[i] = matrix_jacobian_prod_i
-
+        print(f"{i+1}/{N_samples} samples generated.", flush=True)
     computation_times = sampler_wrapper.extract_and_clear_computation_times()
     input_key = "encoded_inputs" if input_encoder is not None else "inputs"
     output_key = "encoded_outputs" if output_encoder is not None else "outputs"
@@ -311,11 +312,10 @@ def generate_reduced_training_data(
     if generate_Jacobians:
         results[jacobian_key] = encoded_jacobian_prod
         results["Jacobian_encoding_time"] = computation_times.get("jacobian_product_computation_time")
-
+        if input_decoder is not None:
+            results["Jacobian_decoding_time"] = jacobian_decoding_time
     if input_encoder is not None:
         results["input_encoding_time"] = input_encoding_time
     if output_encoder is not None:
         results["output_encoding_time"] = output_encoding_time
-    if input_decoder is not None:
-        results["Jacobian_decoding_time"] = jacobian_decoding_time
     return results

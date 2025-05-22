@@ -7,10 +7,12 @@ import jax.numpy as jnp
 import numpy as np
 
 # Import the encoder functions.
-from bayesflux.generation import (GaussianInputOuputAndDerivativesSampler,
-                                  generate_full_Jacobian_data,
-                                  generate_output_data,
-                                  generate_reduced_training_data)
+from bayesflux.generation import (
+    GaussianInputOuputAndDerivativesSampler,
+    generate_full_Jacobian_data,
+    generate_output_data,
+    generate_reduced_training_data,
+)
 
 
 class ExampleSampler(GaussianInputOuputAndDerivativesSampler):

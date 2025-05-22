@@ -21,6 +21,43 @@ def average_JCJtranspose(J_samples: jnp.ndarray, prior_precision: jnp.ndarray) -
     return jnp.mean(jax.vmap(lambda J: __JCJtransp(J, L))(J_samples), axis=0)
 
 
+def average_Jtranspose_sigma_J_chunked(J, noise_variance, chunk_size=100):
+    n, a, b = J.shape  # i.e. n=1000
+    # n_chunks: i.e. 1000//100 = 10,
+    Jc = J.reshape((n // chunk_size, chunk_size, a, b))
+
+    def body(carry, block):
+        return carry + jnp.tensordot(block, block, axes=((0, 1), (0, 1))), None
+
+    init = jnp.zeros((b, b), J.dtype)
+    A_sum, _ = jax.lax.scan(body, init, Jc)
+    return A_sum / (n * noise_variance)
+
+
+def average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_variance, chunk_size=100):
+    n, a, b = J_samples.shape
+    assert n % chunk_size == 0, "n must be divisible by chunk_size"
+    # reshape into (n_chunks, chunk_size, a, b)
+    n_chunks = n // chunk_size
+    Jc = J_samples.reshape(n_chunks, chunk_size, a, b)
+
+    def scan_fn(acc, block):
+        # block has shape (chunk_size, a, b)
+        # 1) multiply each Jᵢ by C:  J_block_C[i,a,c] = ∑_b J[i,a,b] · prior_cov[b,c]
+        J_block_C = jnp.tensordot(block, prior_covariance, axes=((2,), (0,)))
+        #    shape → (chunk_size, a, b)
+        # 2) contract with J again:
+        #    partial[a,d] = ∑_{i,c} J_block_C[i,a,c] · block[i,d,c]
+        partial = jnp.tensordot(J_block_C, block, axes=((0, 2), (0, 2)))
+        #    shape → (a, a)
+        return acc + partial, None
+
+    # initialize accumulator (a×a) and scan over chunks
+    A_sum, _ = jax.lax.scan(scan_fn, jnp.zeros((a, a), J_samples.dtype), Jc)
+    # divide out the sample count and noise variance
+    return A_sum / (n * noise_variance)
+
+
 def information_theoretic_dimension_reduction(
     key: Any,
     J_samples: jnp.ndarray,
@@ -31,6 +68,8 @@ def information_theoretic_dimension_reduction(
     prior_covariance: jnp.ndarray = None,
 ):
     """Document that this is for both input/output dimension reduction"""
+    if isinstance(key, int):
+        key = jax.random.PRNGKey(key)
     if max_input_dimension is not None:
         start = time.time()
         input_encodec_dict = estimate_input_active_subspace(
@@ -41,6 +80,7 @@ def information_theoretic_dimension_reduction(
             subspace_rank=max_input_dimension,
         )
         input_encodec_dict["computation_time"] = time.time() - start
+        print("Input subspace computation time:", input_encodec_dict["computation_time"])
     else:
         input_encodec_dict = dict()
     if max_output_dimension is not None:
@@ -54,6 +94,7 @@ def information_theoretic_dimension_reduction(
             prior_covariance=prior_covariance,
         )
         output_encodec_dict["computation_time"] = time.time() - start
+        print("Output subspace computation time:", output_encodec_dict["computation_time"])
     else:
         output_encodec_dict = dict()
     return {"input": input_encodec_dict, "output": output_encodec_dict}
@@ -67,6 +108,8 @@ def moment_based_dimension_reduction(
     max_input_dimension: int = None,
     max_output_dimension: int = None,
 ):
+    if isinstance(key, int):
+        key = jax.random.PRNGKey(key)
     if max_input_dimension is not None:
         start = time.time()
         input_encodec_dict = estimate_input_Karhunen_Loeve_subspace(
@@ -103,6 +146,8 @@ def estimate_output_Proper_Orthogonal_Decomposition_subspace(
     This is equivalent to producing the eigenpairs of a truncated SVD of output samples.
 
     """
+    if isinstance(key, int):
+        key = jax.random.PRNGKey(key)
     # SVD of output samples
     # return output_encodec_dict
     N = output_samples.shape[0]
@@ -147,6 +192,8 @@ def estimate_input_Karhunen_Loeve_subspace(
         "decoder": 2D array of computed eigenvectors.
         "encoder": 2D array computed as prior_precision @ eigenvectors.
     """
+    if isinstance(key, int):
+        key = jax.random.PRNGKey(key)
     computed_eigvals, computed_evecs = double_pass_randomized_gen_eigh(
         key,
         input_covariance_matrix,
@@ -197,7 +244,13 @@ def estimate_input_active_subspace(
         "decoder": 2D array of computed eigenvectors.
         "encoder": 2D array computed as prior_precision @ eigenvectors.
     """
-    A = jnp.einsum("iab,iac->bc", J_samples, J_samples / J_samples.shape[0]) / noise_variance
+    if isinstance(key, int):
+        key = jax.random.PRNGKey(key)
+        assert (
+            J_samples.shape[0] % 100 == 0
+        ), f"Number of samples ({J_samples.shape[0]}) must be divisible by chunk_size = 100"
+    A = average_Jtranspose_sigma_J_chunked(J_samples, noise_variance, chunk_size=100)
+
     computed_eigvals, computed_evecs = double_pass_randomized_gen_eigh(
         key,
         A,
@@ -251,15 +304,20 @@ def estimate_output_informative_subspace(
         "decoder": 2D array (scaled eigenvectors).
         "encoder": 2D array (inversely scaled eigenvectors).
     """
+    if isinstance(key, int):
+        key = jax.random.PRNGKey(key)
     if prior_covariance is None:
         A = average_JCJtranspose(J_samples, prior_precision)
     else:
-        A = jnp.einsum(
-            "iab,bc,idc->ad",
-            J_samples,
-            prior_covariance / noise_variance,
-            J_samples / J_samples.shape[0],
-        )
+        A = average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_variance, chunk_size=100)
+
+        # A = jnp.einsum(
+        #     "iab,bc,idc->ad",
+        #     J_samples,
+        #     prior_covariance / noise_variance,
+        #     J_samples / J_samples.shape[0],
+        # )
+
     computed_eigvals, computed_evecs = double_pass_randomized_eigh(
         key, A, subspace_rank, p=subspace_rank + 15, power_iters=2
     )

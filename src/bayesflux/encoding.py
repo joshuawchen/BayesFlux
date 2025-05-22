@@ -39,7 +39,7 @@ def encode_Jacobians(
     input_decoder: Optional[jnp.ndarray] = None,
     output_encoder: Optional[jnp.ndarray] = None,
     batched: bool = False,
-    batch_size: int = 50,
+    batch_size: int = 10,
 ) -> jnp.ndarray:
     """
     Reduces Jacobians using input decoder and/or output encoder matrices.
@@ -121,16 +121,17 @@ def encode_input_output_Jacobian_data(
         "encoded_outputs": encoded outputs (or original if not provided).
         "reduced_Jacobians": reduced jacobians (or original if not reduced).
     """
-    print("Placing all data on GPU if not already")
+    print("Placing inputs/input_encoder on GPU if not already")
     inputs = device_put(inputs) if inputs is not None else None
-    outputs = device_put(outputs) if outputs is not None else None
-    input_decoder = device_put(input_decoder) if input_decoder is not None else None
     input_encoder = device_put(input_encoder) if input_encoder is not None else None
-    output_encoder = device_put(output_encoder) if output_encoder is not None else None
 
     start = time.time()
     encoded_inputs = encode_inputs(inputs=inputs, encoder=input_encoder) if input_encoder is not None else inputs
     input_encoding_time = time.time() - start
+
+    print("Placing outputs/output_encoder on GPU if not already")
+    outputs = device_put(outputs) if outputs is not None else None
+    output_encoder = device_put(output_encoder) if output_encoder is not None else None
 
     start = time.time()
     encoded_outputs = encode_outputs(outputs=outputs, encoder=output_encoder) if output_encoder is not None else outputs
@@ -142,6 +143,8 @@ def encode_input_output_Jacobian_data(
         "output_encoding_time": output_encoding_time,
     }
     if jacobians is not None:
+
+        input_decoder = device_put(input_decoder) if input_decoder is not None else None
         start = time.time()
         encoded_Jacobians = encode_Jacobians(
             jacobians=jacobians,
