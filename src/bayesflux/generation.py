@@ -1,7 +1,6 @@
 import time as gentime
 from abc import ABC, abstractmethod
-from math import ceil
-from typing import Callable, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 from numpy.typing import ArrayLike
