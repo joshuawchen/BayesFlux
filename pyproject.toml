@@ -20,9 +20,6 @@ dependencies = [
     "randlax"
 ]
 
-#hickle, hippylib, 
-
-
 [project.optional-dependencies]
 dev = [
     "pytest",
@@ -31,7 +28,10 @@ dev = [
     "flake8",
     "flake8-pyproject"
 ]
-hippylib = ["hippylib>=3.1.0"]
+hippylib = [
+    "hickle",
+    "hippylib>=3.1.0"
+]
 
 
 [tool.black]

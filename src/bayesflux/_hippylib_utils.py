@@ -12,6 +12,7 @@ except ImportError as e:
     _HIPPYLIB_AVAILABLE = False
 
 import numpy as np
+
 from .generation import GaussianInputOuputAndDerivativesSampler
 
 if _HIPPYLIB_AVAILABLE:
