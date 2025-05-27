@@ -399,6 +399,7 @@ if _HIPPYLIB_AVAILABLE:
             self._noise = dl.Vector()
             self._model = model
             self._model.prior.init_vector(self._noise, "noise")
+            self._noise_precision = 1./self._model.misfit.noise_variance
             self.observable = observable
             self._J = _ObservableJacobian(observable)
             self.non_parallel_random_generator = hp.Random(seed=random_seed)
@@ -414,6 +415,7 @@ if _HIPPYLIB_AVAILABLE:
         def _precision(self):
             if self.__precision == None:
                 import jax
+                jax.config.update("jax_enable_x64", True)
                 import jax.numpy as jnp
 
                 self._A = jax.device_put(self._A)
@@ -428,7 +430,7 @@ if _HIPPYLIB_AVAILABLE:
         def _L2_inner_product_matrix(self):
             if self.__L2_inner_product_matrix == None:
                 import jax
-
+                jax.config.update("jax_enable_x64", True)
                 self.__L2_inner_product_matrix = jax.device_put(self._M)
                 print("got here")
                 return self.__L2_inner_product_matrix
@@ -471,17 +473,17 @@ if _HIPPYLIB_AVAILABLE:
         def value_and_matrix_jacobian_prod(self, input_sample: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
             self._m.set_local(input_sample)
             x = [self._u, self._m, None]
-            start = time.time()
+            start = time. perf_counter()
             self._J.observable.solveFwd(self._u, x)
             output_sample = self._J.observable.evalu(self._u, self._output).get_local()
-            self.output_computation_time += time.time() - start
+            self.output_computation_time += time. perf_counter() - start
             # print("Fwd time:", time_for_sample, flush=True)
-            start = time.time()
+            start = time. perf_counter()
             self._J.observable.setLinearizationPoint(x)
             self._JstarMatMV.zero()
             hp.MatMvTranspmult(self._J, self._OutputMV, self._JstarMatMV)  # J^T OutputEncoder
             mv_to_dense(self._JstarMatMV, self._output_reduced_jacobian_transpose)  # output basis
-            time_for_sample = time.time() - start
+            time_for_sample = time. perf_counter() - start
             self.jacobian_product_computation_time += time_for_sample
             # print("vjp time:", time_for_sample, flush=True)
             return output_sample, self._output_reduced_jacobian_transpose.T
@@ -581,7 +583,7 @@ if _HIPPYLIB_AVAILABLE:
         print("Loading results from files")
         import time
 
-        start = time.time()
+        start = time. perf_counter()
         N_results_dcts = [hickle.load(f"./multiprocess_tmp/{i}.hkl") for i in range(N_processes)]
 
         # Concatenate results, add metadata, and delete temporary stored files, and return results
@@ -595,7 +597,8 @@ if _HIPPYLIB_AVAILABLE:
                 accumulated_results[k] = np.sum(times)
                 accumulated_results["parallel_max_" + k] = np.max(times)
                 accumulated_results[k.removesuffix("_time") + "_num_parallel_processes"] = N_processes
-        accumulation_to_parent_process_time = time.time() - start
+                print("parallel_max_" + k, accumulated_results["parallel_max_" + k])
+        accumulation_to_parent_process_time = time. perf_counter() - start
         accumulated_results["accumulation_to_parent_process_time"] = accumulation_to_parent_process_time
         print("accumulation_to_parent_process_time", accumulation_to_parent_process_time)
         import shutil

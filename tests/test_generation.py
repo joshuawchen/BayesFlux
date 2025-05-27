@@ -35,11 +35,11 @@ class ExampleSampler(GaussianInputOuputAndDerivativesSampler):
 
     def value_and_matrix_jacobian_prod(self, input_sample: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         output_sample = self.value(input_sample)
-        start = time.time()
+        start = time. perf_counter()
         jacobian_sample = np.zeros((self._input_dimension, self._output_dimension))
         jacobian_sample[0:-1] = (3 * input_sample[0:-1] ** 2.0)[:, None]
         jacobian_sample = jacobian_sample @ self._matrix_jacobian_prod_matrix
-        self.jacobian_product_computation_time += time.time() - start
+        self.jacobian_product_computation_time += time. perf_counter() - start
         return output_sample, jacobian_sample.T  # grad f(x) = diag(3x^2) except the last dimension of x
 
 

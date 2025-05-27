@@ -84,9 +84,9 @@ class InputOuputAndDerivativesSampler(ABC):
             - A NumPy array of shape (output_dimension,) representing the
                 function value.
         """
-        start = gentime.time()
+        start = gentime.perf_counter()
         value = self._value(input_sample)
-        self.output_computation_time += gentime.time() - start
+        self.output_computation_time += gentime.perf_counter() - start
         return value
 
     @abstractmethod
@@ -146,6 +146,10 @@ class InputOuputAndDerivativesSampler(ABC):
 
 class GaussianInputOuputAndDerivativesSampler(InputOuputAndDerivativesSampler):
 
+    @property
+    def noise_precision(self) -> ArrayLike:
+        return self._noise_precision
+    
     @property
     def precision(self) -> ArrayLike:
         return self._precision
@@ -270,9 +274,9 @@ def generate_reduced_training_data(
     for i in range(N_samples):
         input_sample = sampler_wrapper.sample_input()
         if input_encoder is not None:
-            start = gentime.time()
+            start = gentime.perf_counter()
             encoded_inputs[i] = input_sample @ input_encoder
-            input_encoding_time += gentime.time() - start
+            input_encoding_time += gentime.perf_counter() - start
 
         else:
             if reduce_input_before:
@@ -285,16 +289,16 @@ def generate_reduced_training_data(
         else:
             output_i = sampler_wrapper.value(input_sample)
         if output_encoder is not None:
-            start = gentime.time()
+            start = gentime.perf_counter()
             encoded_outputs[i] = output_i @ output_encoder
-            output_encoding_time += gentime.time() - start
+            output_encoding_time += gentime.perf_counter() - start
         else:
             encoded_outputs[i] = output_i
         if generate_Jacobians:
             if input_decoder is not None:
-                start = gentime.time()
+                start = gentime.perf_counter()
                 encoded_jacobian_prod[i] = matrix_jacobian_prod_i @ input_decoder
-                jacobian_decoding_time += gentime.time() - start
+                jacobian_decoding_time += gentime.perf_counter() - start
             else:
                 encoded_jacobian_prod[i] = matrix_jacobian_prod_i
         print(f"{i+1}/{N_samples} samples generated.", flush=True)

@@ -2,6 +2,7 @@ import time
 from typing import Any, Dict
 
 import jax
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from randlax import double_pass_randomized_eigh, double_pass_randomized_gen_eigh
@@ -21,9 +22,9 @@ def average_JCJtranspose(J_samples: jnp.ndarray, prior_precision: jnp.ndarray) -
     return jnp.mean(jax.vmap(lambda J: __JCJtransp(J, L))(J_samples), axis=0)
 
 
-def average_Jtranspose_sigma_J_chunked(J, noise_variance, chunk_size=100):
+def average_Jtranspose_sigma_J_chunked(J, noise_variance, chunk_size=25):
     n, a, b = J.shape  # i.e. n=1000
-    # n_chunks: i.e. 1000//100 = 10,
+    # n_chunks: i.e. 1000//25 = 40,
     Jc = J.reshape((n // chunk_size, chunk_size, a, b))
 
     def body(carry, block):
@@ -71,7 +72,7 @@ def information_theoretic_dimension_reduction(
     if isinstance(key, int):
         key = jax.random.PRNGKey(key)
     if max_input_dimension is not None:
-        start = time.time()
+        start = time. perf_counter()
         input_encodec_dict = estimate_input_active_subspace(
             key=key,
             J_samples=J_samples,
@@ -79,12 +80,12 @@ def information_theoretic_dimension_reduction(
             prior_precision=prior_precision,
             subspace_rank=max_input_dimension,
         )
-        input_encodec_dict["computation_time"] = time.time() - start
+        input_encodec_dict["computation_time"] = time. perf_counter() - start
         print("Input subspace computation time:", input_encodec_dict["computation_time"])
     else:
         input_encodec_dict = dict()
     if max_output_dimension is not None:
-        start = time.time()
+        start = time. perf_counter()
         output_encodec_dict = estimate_output_informative_subspace(
             key=key,
             J_samples=J_samples,
@@ -93,7 +94,7 @@ def information_theoretic_dimension_reduction(
             prior_precision=prior_precision,
             prior_covariance=prior_covariance,
         )
-        output_encodec_dict["computation_time"] = time.time() - start
+        output_encodec_dict["computation_time"] = time. perf_counter() - start
         print("Output subspace computation time:", output_encodec_dict["computation_time"])
     else:
         output_encodec_dict = dict()
@@ -111,24 +112,24 @@ def moment_based_dimension_reduction(
     if isinstance(key, int):
         key = jax.random.PRNGKey(key)
     if max_input_dimension is not None:
-        start = time.time()
+        start = time. perf_counter()
         input_encodec_dict = estimate_input_Karhunen_Loeve_subspace(
             key=key,
             input_covariance_matrix=input_covariance_matrix,
             L2_inner_product_matrix=L2_inner_product_matrix,
             subspace_rank=max_input_dimension,
         )
-        input_encodec_dict["computation_time"] = time.time() - start
+        input_encodec_dict["computation_time"] = time. perf_counter() - start
     else:
         input_encodec_dict = dict()
     if max_output_dimension is not None:
-        start = time.time()
+        start = time. perf_counter()
         output_encodec_dict = estimate_output_Proper_Orthogonal_Decomposition_subspace(
             key=key,
             output_samples=output_samples,
             subspace_rank=max_output_dimension,
         )
-        output_encodec_dict["computation_time"] = time.time() - start
+        output_encodec_dict["computation_time"] = time. perf_counter() - start
     else:
         output_encodec_dict = dict()
     return {"input": input_encodec_dict, "output": output_encodec_dict}
@@ -247,23 +248,23 @@ def estimate_input_active_subspace(
     if isinstance(key, int):
         key = jax.random.PRNGKey(key)
         assert (
-            J_samples.shape[0] % 100 == 0
-        ), f"Number of samples ({J_samples.shape[0]}) must be divisible by chunk_size = 100"
-    A = average_Jtranspose_sigma_J_chunked(J_samples, noise_variance, chunk_size=100)
+            J_samples.shape[0] % 10 == 0
+        ), f"Number of samples ({J_samples.shape[0]}) must be divisible by chunk_size = 10"
+    A = average_Jtranspose_sigma_J_chunked(J_samples, noise_variance, chunk_size=10)
 
     computed_eigvals, computed_evecs = double_pass_randomized_gen_eigh(
         key,
         A,
         prior_precision,
         subspace_rank,
-        subspace_rank + 15,
+        subspace_rank + 10,
         power_iters=2,
-        reorthog_iter=5,
+        reorthog_iter=3,
     )
     return {
         "eigenvalues": computed_eigvals,
         "decoder": computed_evecs,
-        "encoder": prior_precision @ computed_evecs,
+        "encoder":  prior_precision @computed_evecs,
     }
 
 
@@ -309,7 +310,7 @@ def estimate_output_informative_subspace(
     if prior_covariance is None:
         A = average_JCJtranspose(J_samples, prior_precision)
     else:
-        A = average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_variance, chunk_size=100)
+        A = average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_variance, chunk_size=10)
 
         # A = jnp.einsum(
         #     "iab,bc,idc->ad",
