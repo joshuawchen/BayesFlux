@@ -200,9 +200,9 @@ def estimate_input_Karhunen_Loeve_subspace(
         input_covariance_matrix,
         L2_inner_product_matrix,
         subspace_rank,
-        subspace_rank + 15,
-        power_iters=2,
-        reorthog_iter=5,
+        subspace_rank + 5,
+        power_iters=5,
+        reorthog_iter=3,
     )
     return {
         "eigenvalues": computed_eigvals,
