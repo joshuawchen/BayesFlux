@@ -22,7 +22,7 @@ def average_JCJtranspose(J_samples: jnp.ndarray, prior_precision: jnp.ndarray) -
     return jnp.mean(jax.vmap(lambda J: __JCJtransp(J, L))(J_samples), axis=0)
 
 
-def average_Jtranspose_sigma_J_chunked(J, noise_variance, chunk_size=25):
+def average_Jtranspose_sigmainv_J_chunked(J, noise_precision, chunk_size=25):
     n, a, b = J.shape  # i.e. n=1000
     # n_chunks: i.e. 1000//25 = 40,
     Jc = J.reshape((n // chunk_size, chunk_size, a, b))
@@ -32,10 +32,10 @@ def average_Jtranspose_sigma_J_chunked(J, noise_variance, chunk_size=25):
 
     init = jnp.zeros((b, b), J.dtype)
     A_sum, _ = jax.lax.scan(body, init, Jc)
-    return A_sum / (n * noise_variance)
+    return (noise_precision / n) * A_sum
 
 
-def average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_variance, chunk_size=100):
+def average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_precision, chunk_size=100):
     n, a, b = J_samples.shape
     assert n % chunk_size == 0, "n must be divisible by chunk_size"
     # reshape into (n_chunks, chunk_size, a, b)
@@ -56,13 +56,13 @@ def average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_vari
     # initialize accumulator (a×a) and scan over chunks
     A_sum, _ = jax.lax.scan(scan_fn, jnp.zeros((a, a), J_samples.dtype), Jc)
     # divide out the sample count and noise variance
-    return A_sum / (n * noise_variance)
+    return(noise_precision / n) * A_sum 
 
 
 def information_theoretic_dimension_reduction(
     key: Any,
     J_samples: jnp.ndarray,
-    noise_variance: float,
+    noise_precision: float,
     prior_precision: jnp.ndarray,
     max_input_dimension: int = None,
     max_output_dimension: int = None,
@@ -76,7 +76,7 @@ def information_theoretic_dimension_reduction(
         input_encodec_dict = estimate_input_active_subspace(
             key=key,
             J_samples=J_samples,
-            noise_variance=noise_variance,
+            noise_precision=noise_precision,
             prior_precision=prior_precision,
             subspace_rank=max_input_dimension,
         )
@@ -89,7 +89,7 @@ def information_theoretic_dimension_reduction(
         output_encodec_dict = estimate_output_informative_subspace(
             key=key,
             J_samples=J_samples,
-            noise_variance=noise_variance,
+            noise_precision=noise_precision,
             subspace_rank=max_output_dimension,
             prior_precision=prior_precision,
             prior_covariance=prior_covariance,
@@ -214,7 +214,7 @@ def estimate_input_Karhunen_Loeve_subspace(
 def estimate_input_active_subspace(
     key: Any,
     J_samples: jnp.ndarray,
-    noise_variance: float,
+    noise_precision: float,
     prior_precision: jnp.ndarray,
     subspace_rank: int,
 ) -> Dict[str, jnp.ndarray]:
@@ -234,7 +234,7 @@ def estimate_input_active_subspace(
       key: Random key for the randomized eigendecomposition.
       J_samples: 3D array of Jacobian samples with shape (N, a, b), where N
                 is the number of samples.
-      noise_variance: a positive scalar; noise precision is
+      noise_precision: a positive scalar; noise precision is
                       1/noise_variance.
       prior_precision: 2D prior precision matrix.
       r: Target rank for the eigendecomposition.
@@ -250,7 +250,7 @@ def estimate_input_active_subspace(
         assert (
             J_samples.shape[0] % 10 == 0
         ), f"Number of samples ({J_samples.shape[0]}) must be divisible by chunk_size = 10"
-    A = average_Jtranspose_sigma_J_chunked(J_samples, noise_variance, chunk_size=10)
+    A = average_Jtranspose_sigmainv_J_chunked(J_samples, noise_precision, chunk_size=10)
 
     computed_eigvals, computed_evecs = double_pass_randomized_gen_eigh(
         key,
@@ -271,7 +271,7 @@ def estimate_input_active_subspace(
 def estimate_output_informative_subspace(
     key: Any,
     J_samples: jnp.ndarray,
-    noise_variance: float,
+    noise_precision: float,
     subspace_rank: int,
     prior_covariance: jnp.ndarray = None,
     prior_precision: jnp.ndarray = None,
@@ -308,9 +308,9 @@ def estimate_output_informative_subspace(
     if isinstance(key, int):
         key = jax.random.PRNGKey(key)
     if prior_covariance is None:
-        A = average_JCJtranspose(J_samples, prior_precision)
+        A = average_JCJtranspose(J_samples, prior_precision)*noise_precision
     else:
-        A = average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_variance, chunk_size=10)
+        A = average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_precision, chunk_size=10)
 
         # A = jnp.einsum(
         #     "iab,bc,idc->ad",
@@ -322,9 +322,9 @@ def estimate_output_informative_subspace(
     computed_eigvals, computed_evecs = double_pass_randomized_eigh(
         key, A, subspace_rank, p=subspace_rank + 15, power_iters=2
     )
-    noise_sigma = jnp.sqrt(noise_variance)
+    one_over_noise_sigma = jnp.sqrt(noise_precision)
     return {
         "eigenvalues": computed_eigvals,
-        "decoder": noise_sigma * computed_evecs,
-        "encoder": computed_evecs / noise_sigma,
+        "decoder": computed_evecs/one_over_noise_sigma,
+        "encoder": one_over_noise_sigma* computed_evecs,
     }

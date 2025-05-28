@@ -17,6 +17,7 @@ from bayesflux.generation import (
 
 class ExampleSampler(GaussianInputOuputAndDerivativesSampler):
     def __init__(self):
+        self._noise_precision = 1
         self._input_dimension = 5
         self._output_dimension = 4
         self._precision, self._L2_inner_product_matrix = np.identity(self._input_dimension), np.identity(
