@@ -125,17 +125,17 @@ def encode_input_output_Jacobian_data(
     inputs = device_put(inputs) if inputs is not None else None
     input_encoder = device_put(input_encoder) if input_encoder is not None else None
 
-    start = time. perf_counter()
+    start = time.perf_counter()
     encoded_inputs = encode_inputs(inputs=inputs, encoder=input_encoder) if input_encoder is not None else inputs
-    input_encoding_time = time. perf_counter() - start
+    input_encoding_time = time.perf_counter() - start
 
     print("Placing outputs/output_encoder on GPU if not already")
     outputs = device_put(outputs) if outputs is not None else None
     output_encoder = device_put(output_encoder) if output_encoder is not None else None
 
-    start = time. perf_counter()
+    start = time.perf_counter()
     encoded_outputs = encode_outputs(outputs=outputs, encoder=output_encoder) if output_encoder is not None else outputs
-    output_encoding_time = time. perf_counter() - start
+    output_encoding_time = time.perf_counter() - start
     encoded_dict = {
         "encoded_inputs": encoded_inputs,
         "encoded_outputs": encoded_outputs,
@@ -145,7 +145,7 @@ def encode_input_output_Jacobian_data(
     if jacobians is not None:
 
         input_decoder = device_put(input_decoder) if input_decoder is not None else None
-        start = time. perf_counter()
+        start = time.perf_counter()
         encoded_Jacobians = encode_Jacobians(
             jacobians=jacobians,
             input_decoder=input_decoder,
@@ -153,7 +153,7 @@ def encode_input_output_Jacobian_data(
             batched=batched,
             batch_size=batch_size,
         )
-        jacobian_encoding_time = time. perf_counter() - start
+        jacobian_encoding_time = time.perf_counter() - start
 
         encoded_dict["encoded_Jacobians"] = encoded_Jacobians
         encoded_dict["Jacobian_encoding_time"] = jacobian_encoding_time

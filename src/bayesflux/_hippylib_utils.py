@@ -399,7 +399,7 @@ if _HIPPYLIB_AVAILABLE:
             self._noise = dl.Vector()
             self._model = model
             self._model.prior.init_vector(self._noise, "noise")
-            self._noise_precision = 1./self._model.misfit.noise_variance
+            self._noise_precision = 1.0 / self._model.misfit.noise_variance
             self.observable = observable
             self._J = _ObservableJacobian(observable)
             self.non_parallel_random_generator = hp.Random(seed=random_seed)
@@ -415,6 +415,7 @@ if _HIPPYLIB_AVAILABLE:
         def _precision(self):
             if self.__precision == None:
                 import jax
+
                 jax.config.update("jax_enable_x64", True)
                 import jax.numpy as jnp
 
@@ -430,6 +431,7 @@ if _HIPPYLIB_AVAILABLE:
         def _L2_inner_product_matrix(self):
             if self.__L2_inner_product_matrix == None:
                 import jax
+
                 jax.config.update("jax_enable_x64", True)
                 self.__L2_inner_product_matrix = jax.device_put(self._M)
                 print("got here")

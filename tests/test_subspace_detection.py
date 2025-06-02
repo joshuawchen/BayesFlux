@@ -42,7 +42,7 @@ def test_ridge_likelihood_active_subspace():
 
         # Estimate subspace
         input_encoder_decoder_results = estimate_input_active_subspace(
-            key, J_samples, 1./noise_variance, prior_precision, subspace_rank
+            key, J_samples, 1.0 / noise_variance, prior_precision, subspace_rank
         )
         est_eigvals = input_encoder_decoder_results["eigenvalues"]
         est_eigvecs = input_encoder_decoder_results["decoder"]
@@ -117,7 +117,7 @@ def test_information_theoretic_dimension_reduction_bayesian_inference():
     reduction_dict = information_theoretic_dimension_reduction(
         key=key,
         J_samples=J_samples,
-        noise_precision=1./noise_variance,
+        noise_precision=1.0 / noise_variance,
         prior_precision=prior_precision,
         prior_covariance=prior_covariance,
         max_input_dimension=max_input_dimension,
