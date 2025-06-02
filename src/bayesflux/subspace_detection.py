@@ -258,7 +258,7 @@ def estimate_input_active_subspace(
         prior_precision,
         subspace_rank,
         subspace_rank + 10,
-        power_iters=2,
+        power_iters=1,
         reorthog_iter=3,
     )
     return {

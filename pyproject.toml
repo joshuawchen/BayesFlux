@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "BayesFlux"
-version = "0.7.0"
+version = "0.7.1"
 description = "Bayesian Fast Linear algebra sUbspace eXtraction in JAX"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -17,7 +17,7 @@ authors = [
 dependencies = [
     "jax",
     "jaxlib",
-    "randlax>=0.2.0"
+    "randlax>=0.3.0"
 ]
 
 [project.optional-dependencies]
