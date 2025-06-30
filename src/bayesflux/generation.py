@@ -151,10 +151,6 @@ class GaussianInputOuputAndDerivativesSampler(InputOuputAndDerivativesSampler):
         return self._noise_precision
 
     @property
-    def noise_variance(self) -> ArrayLike:
-        return self._noise_variance
-
-    @property
     def precision(self) -> ArrayLike:
         return self._precision
 
