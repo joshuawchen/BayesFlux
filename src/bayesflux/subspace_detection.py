@@ -6,7 +6,8 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
-from randlax import double_pass_randomized_eigh, double_pass_randomized_gen_eigh
+from randlax import (double_pass_randomized_eigh,
+                     double_pass_randomized_gen_eigh)
 
 
 @jax.jit
@@ -36,7 +37,7 @@ def average_Jtranspose_sigmainv_J_chunked(J, noise_precision, chunk_size=25):
     return (noise_precision / n) * A_sum
 
 
-def average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_precision, chunk_size=100):
+def average_JCoversigma2Jtranspose_chunked(J_samples, prior_covariance, noise_precision, chunk_size=10):
     n, a, b = J_samples.shape
     assert n % chunk_size == 0, "n must be divisible by chunk_size"
     # reshape into (n_chunks, chunk_size, a, b)
@@ -64,6 +65,7 @@ def information_theoretic_dimension_reduction(
     key: Any,
     J_samples: jnp.ndarray,
     noise_precision: float,
+    noise_variance: float,
     prior_precision: jnp.ndarray,
     max_input_dimension: int = None,
     max_output_dimension: int = None,
@@ -91,6 +93,7 @@ def information_theoretic_dimension_reduction(
             key=key,
             J_samples=J_samples,
             noise_precision=noise_precision,
+            noise_variance=noise_variance,
             subspace_rank=max_output_dimension,
             prior_precision=prior_precision,
             prior_covariance=prior_covariance,
@@ -260,10 +263,16 @@ def estimate_input_active_subspace(
         subspace_rank + 10,
         power_iters=1,
     )
+    encoder = prior_precision @ computed_evecs
+    decoder = computed_evecs
+    PsistarPsi = encoder.T @ decoder
+    orth_error = jnp.linalg.norm(PsistarPsi - jnp.eye(PsistarPsi.shape[0]))
+    print("input orth_error", orth_error)
+    print("input rel orth_error", orth_error / jnp.linalg.norm(jnp.eye(PsistarPsi.shape[0])))
     return {
         "eigenvalues": computed_eigvals,
-        "decoder": computed_evecs,
-        "encoder": prior_precision @ computed_evecs,
+        "decoder": decoder,
+        "encoder": encoder,
     }
 
 
@@ -271,6 +280,7 @@ def estimate_output_informative_subspace(
     key: Any,
     J_samples: jnp.ndarray,
     noise_precision: float,
+    noise_variance: float,
     subspace_rank: int,
     prior_covariance: jnp.ndarray = None,
     prior_precision: jnp.ndarray = None,
@@ -309,21 +319,42 @@ def estimate_output_informative_subspace(
     if prior_covariance is None:
         A = average_JCJtranspose(J_samples, prior_precision) * noise_precision
     else:
-        A = average_JCoversigmaJtranpose_chunked(J_samples, prior_covariance, noise_precision, chunk_size=10)
+        A = average_JCoversigma2Jtranspose_chunked(J_samples, prior_covariance, noise_precision, chunk_size=2)
 
-        # A = jnp.einsum(
-        #     "iab,bc,idc->ad",
-        #     J_samples,
-        #     prior_covariance / noise_variance,
-        #     J_samples / J_samples.shape[0],
-        # )
-
-    computed_eigvals, computed_evecs = double_pass_randomized_eigh(
-        key, A, subspace_rank, p=subspace_rank + 15, power_iters=2
-    )
+    # computed_eigvals, computed_evecs = double_pass_randomized_eigh(
+    #     key, A, subspace_rank, p=subspace_rank + 15, power_iters=4
+    # )
+    computed_eigvals, computed_evecs = jnp.linalg.eigh(A)
+    computed_evecs = computed_evecs[:, -subspace_rank:]
     one_over_noise_sigma = jnp.sqrt(noise_precision)
+    noise_stdev = jnp.sqrt(noise_variance)
+    decoder = computed_evecs * noise_stdev
+    encoder = one_over_noise_sigma * computed_evecs
+
+    PsistarPsi = encoder.T @ decoder
+    orth_error = jnp.linalg.norm(PsistarPsi - jnp.eye(PsistarPsi.shape[0]))
+    print("output orth_error", orth_error)
+    print("output rel orth_error", orth_error / jnp.linalg.norm(jnp.eye(PsistarPsi.shape[0])))
+
+    P = decoder @ encoder.T
+    Gamma_inv = noise_precision * jnp.eye(encoder.shape[0])
+    Gamma = noise_variance * jnp.eye(encoder.shape[0])
+
+    err_sym = jnp.linalg.norm(P.T @ Gamma_inv - Gamma_inv @ P, ord="fro")
+    err_sym2 = jnp.linalg.norm(P.T @ Gamma - Gamma @ P, ord="fro")
+    print("Gamma - symmetry error", err_sym2)
+
+    print("Gamma^-1-symmetry error", err_sym)
+
+    err_idemp = jnp.linalg.norm(P @ P - P, ord="fro")
+
+    print("Idempot error", err_idemp, "\n")
+    # err_idempotence = jnp.linalg.norm(P @ Gamma @ P.T - P)
+
+    # print("Idempotence error", err_idempotence, "\n")
+
     return {
         "eigenvalues": computed_eigvals,
-        "decoder": computed_evecs / one_over_noise_sigma,
-        "encoder": one_over_noise_sigma * computed_evecs,
+        "decoder": decoder,
+        "encoder": encoder,  # data whitening transformation, leads to y_r \sim N(Encoder @ f(x), I_r)
     }

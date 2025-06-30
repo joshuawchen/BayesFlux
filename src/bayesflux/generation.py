@@ -151,6 +151,10 @@ class GaussianInputOuputAndDerivativesSampler(InputOuputAndDerivativesSampler):
         return self._noise_precision
 
     @property
+    def noise_variance(self) -> ArrayLike:
+        return self._noise_variance
+
+    @property
     def precision(self) -> ArrayLike:
         return self._precision
 
@@ -160,9 +164,7 @@ class GaussianInputOuputAndDerivativesSampler(InputOuputAndDerivativesSampler):
 
 
 def generate_full_Jacobian_data(
-    *,
-    sampler_wrapper: InputOuputAndDerivativesSampler,
-    N_samples: int,
+    *, sampler_wrapper: InputOuputAndDerivativesSampler, N_samples: int, print_progress=False
 ) -> Dict[str, np.ndarray]:
     """
     Generate full Jacobian data for dimension reduction.
@@ -177,10 +179,14 @@ def generate_full_Jacobian_data(
     Returns:
         A dictionary containing training data and optional computation times.
     """
-    return generate_reduced_training_data(sampler_wrapper=sampler_wrapper, N_samples=N_samples, generate_Jacobians=True)
+    return generate_reduced_training_data(
+        sampler_wrapper=sampler_wrapper, N_samples=N_samples, generate_Jacobians=True, print_progress=print_progress
+    )
 
 
-def generate_output_data(*, sampler_wrapper: InputOuputAndDerivativesSampler, N_samples: int) -> Dict[str, np.ndarray]:
+def generate_output_data(
+    *, sampler_wrapper: InputOuputAndDerivativesSampler, N_samples: int, print_progress=False
+) -> Dict[str, np.ndarray]:
     """
     Generate full Jacobian data for dimension reduction.
 
@@ -195,9 +201,7 @@ def generate_output_data(*, sampler_wrapper: InputOuputAndDerivativesSampler, N_
         A dictionary containing training data and optional computation times.
     """
     return generate_reduced_training_data(
-        sampler_wrapper=sampler_wrapper,
-        N_samples=N_samples,
-        generate_Jacobians=False,
+        sampler_wrapper=sampler_wrapper, N_samples=N_samples, generate_Jacobians=False, print_progress=print_progress
     )
 
 
@@ -210,6 +214,7 @@ def generate_reduced_training_data(
     input_encoder: Optional[np.ndarray] = None,
     generate_Jacobians: bool = True,
     reduce_input_before: bool = False,
+    print_progress=False,
 ) -> Dict[str, np.ndarray]:
     """
     Generate reduced training data using a function and its derivatives.
@@ -266,8 +271,8 @@ def generate_reduced_training_data(
         sampler_wrapper.init_matrix_jacobian_prod(
             matrix=output_encoder if output_encoder is not None else np.identity(encoded_output_dimension)
         )
-
-    print("Sampling...", flush=True)
+    if print_progress:
+        print("Sampling...", flush=True)
     input_encoding_time = 0.0
     output_encoding_time = 0.0
     jacobian_decoding_time = 0.0
@@ -277,7 +282,6 @@ def generate_reduced_training_data(
             start = gentime.perf_counter()
             encoded_inputs[i] = input_sample @ input_encoder
             input_encoding_time += gentime.perf_counter() - start
-
         else:
             if reduce_input_before:
                 encoded_inputs[i] = input_sample @ input_encoder
@@ -301,7 +305,8 @@ def generate_reduced_training_data(
                 jacobian_decoding_time += gentime.perf_counter() - start
             else:
                 encoded_jacobian_prod[i] = matrix_jacobian_prod_i
-        print(f"{i+1}/{N_samples} samples generated.", flush=True)
+        if print_progress:
+            print(f"{i+1}/{N_samples} samples generated.", flush=True)
     computation_times = sampler_wrapper.extract_and_clear_computation_times()
     input_key = "encoded_inputs" if input_encoder is not None else "inputs"
     output_key = "encoded_outputs" if output_encoder is not None else "outputs"

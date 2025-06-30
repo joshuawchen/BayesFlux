@@ -1,6 +1,8 @@
 import time
+import types
 from multiprocessing import get_context
-from typing import Dict, Tuple
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 try:
     import dolfin as dl
@@ -399,7 +401,8 @@ if _HIPPYLIB_AVAILABLE:
             self._noise = dl.Vector()
             self._model = model
             self._model.prior.init_vector(self._noise, "noise")
-            self._noise_precision = 1.0 / self._model.misfit.noise_variance
+            self._noise_precision = self._model.misfit.noise_precision
+            self._noise_variance = self._model.misfit.noise_variance
             self.observable = observable
             self._J = _ObservableJacobian(observable)
             self.non_parallel_random_generator = hp.Random(seed=random_seed)
@@ -499,13 +502,11 @@ if _HIPPYLIB_AVAILABLE:
         settings = model_module.settings()
         settings["hippylib_seed"] = seed
 
-        print("loading hippylib model")
         model = model_module.model(settings)
 
         sampler_wrapper = __hippylibObservableWrapper(
             model, __hippylibModelLinearStateObservable(model), settings["hippylib_seed"]
         )
-        print("done loading hippylib model")
         return sampler_wrapper
 
     def __worker_generates_reduced_hippylib_training_data(
@@ -513,7 +514,20 @@ if _HIPPYLIB_AVAILABLE:
     ):
         from bayesflux.generation import generate_reduced_training_data
 
+        # if task_id == 0: print("loading hippylib model on process 0")
         worker_sampler_wrapper = hippylib_sampler_from_model(model_name, task_id + random_seed_offset)
+        # if task_id == 0: print("done loading hippylib model on process 0")
+
+        reduced_dims = kwargs.get("reduced_dims")
+        if reduced_dims:
+            kwargs.pop("reduced_dims")
+            encodec_dict = hickle.load(kwargs.pop("encodec_path"))[reduced_dims]
+            kwargs["input_decoder"], kwargs["input_encoder"], kwargs["output_encoder"] = (
+                encodec_dict["input"]["decoder"],
+                encodec_dict["input"]["encoder"],
+                encodec_dict["output"]["encoder"],
+            )
+
         results = generate_reduced_training_data(sampler_wrapper=worker_sampler_wrapper, N_samples=N_samples, **kwargs)
         from pathlib import Path
 
@@ -544,6 +558,7 @@ if _HIPPYLIB_AVAILABLE:
         quotient, remainder = divmod(N_samples, N_processes)
         N_samples_on_processes = [quotient + (1 if i < remainder else 0) for i in range(N_processes)]
 
+        # load encoder/decoders
         return __worker_generates_reduced_hippylib_training_data(
             task_id,
             model_name=model_name,
@@ -582,14 +597,14 @@ if _HIPPYLIB_AVAILABLE:
         )
 
         # load results of each process from file
-        print("Loading results from files")
+        # print("Loading results from files")
         import time
 
         start = time.perf_counter()
         N_results_dcts = [hickle.load(f"./multiprocess_tmp/{i}.hkl") for i in range(N_processes)]
 
         # Concatenate results, add metadata, and delete temporary stored files, and return results
-        print("Accumulating generated training data to parent process")
+        # print("Accumulating generated training data to parent process")
         accumulated_results = dict()
         for k in N_results_dcts[0].keys():
             if isinstance(N_results_dcts[0][k], np.ndarray) and N_results_dcts[0][k].shape != ():
@@ -599,17 +614,23 @@ if _HIPPYLIB_AVAILABLE:
                 accumulated_results[k] = np.sum(times)
                 accumulated_results["parallel_max_" + k] = np.max(times)
                 accumulated_results[k.removesuffix("_time") + "_num_parallel_processes"] = N_processes
-                print("parallel_max_" + k, accumulated_results["parallel_max_" + k])
+                # print("parallel_max_" + k, accumulated_results["parallel_max_" + k])
         accumulation_to_parent_process_time = time.perf_counter() - start
         accumulated_results["accumulation_to_parent_process_time"] = accumulation_to_parent_process_time
-        print("accumulation_to_parent_process_time", accumulation_to_parent_process_time)
+        # print("accumulation_to_parent_process_time", accumulation_to_parent_process_time)
         import shutil
 
         shutil.rmtree("multiprocess_tmp")
         return accumulated_results
 
     def multiprocess_generate_hippylib_output_data(
-        *, model_name: str, N_samples: int, N_processes: int, random_seed_offset: int = 0
+        *,
+        model_name: str,
+        N_samples: int,
+        N_processes: int,
+        random_seed_offset: int = 0,
+        print_progress=False,
+        **kwargs,
     ) -> Dict[str, np.ndarray]:
         """
         Generate output data for dimension reduction.
@@ -630,10 +651,12 @@ if _HIPPYLIB_AVAILABLE:
             N_processes=N_processes,
             random_seed_offset=random_seed_offset,
             generate_Jacobians=False,
+            print_progress=print_progress,
+            **kwargs,
         )
 
     def multiprocess_generate_hippylib_full_Jacobian_data(
-        *, model_name: str, N_samples: int, N_processes: int, random_seed_offset: int = 0
+        *, model_name: str, N_samples: int, N_processes: int, random_seed_offset: int = 0, print_progress: bool = False
     ) -> Dict[str, np.ndarray]:
         """
         Generate full Jacobian data for dimension reduction.
@@ -654,7 +677,235 @@ if _HIPPYLIB_AVAILABLE:
             N_processes=N_processes,
             random_seed_offset=random_seed_offset,
             generate_Jacobians=True,
+            print_progress=print_progress,
         )
+
+    ##########################
+    # log likelihood methods #
+    ##########################
+    def _create_vector(self, dim):
+        new_vector = dl.Vector()
+        self.init_vector(new_vector, dim)
+        return new_vector
+
+    def _create_vector_method(hp_ModelInstance: hp.Model):
+        hp_ModelInstance.create_vector = types.MethodType(_create_vector, hp_ModelInstance)
+        return hp_ModelInstance
+
+    def NewVectorFromFunctionSpace(Vh: dl.FunctionSpace):
+        return dl.Function(Vh).vector()
+
+    def np_to_dl(np_array: np.ndarray, dl_vector) -> List[dl.Vector]:
+        dl_vector.set_local(np_array)
+
+    def _log_likelihood_joint_numpy(
+        self,
+        encoded_Y: np.ndarray,
+        encoded_X: np.ndarray,
+        input_decoder: np.ndarray,
+        output_encoder: np.ndarray,
+        output_decoder_T: np.ndarray,
+    ):
+        N = encoded_Y.shape[0]
+        log_likes = np.zeros(N)
+        input_decoder_T = input_decoder.T.copy()
+
+        for i, (X_i, Y_i) in enumerate(zip(encoded_X, encoded_Y)):
+            print("log like i", i)
+            np_to_dl(X_i @ input_decoder_T, self.dl_X_vector)
+            ump = [self.u, self.dl_X_vector, self.p]
+            try:
+                self.model.misfit.d.set_local(Y_i @ output_decoder_T)
+                self.model.solveFwd(ump[hp.STATE], ump)
+            except:
+                raise ("Forward Solve failed")
+            log_likes[i] = -self.model.misfit.cost(ump)
+        return log_likes
+
+    def _value_and_grad_log_likelihood_joint_numpy(
+        self,
+        encoded_Y: np.ndarray,
+        encoded_X: np.ndarray,
+        input_decoder: np.ndarray,
+        output_encoder: np.ndarray,
+        output_decoder_T: np.ndarray,
+    ):
+        # allocate array of scalars, array of vectors
+        N = encoded_Y.shape[0]
+        log_likes = np.zeros(N)
+        gradients = np.zeros((N, encoded_X.shape[1]))
+        self.model.misfit.projector = output_decoder_T.T @ output_encoder.T
+        self.model.misfit.output_encoder = output_encoder
+
+        for i, (X_i, Y_i) in enumerate(zip(encoded_X, encoded_Y)):
+            np_to_dl(input_decoder @ X_i, self.dl_X_vector)  # reuse one dolfin vector
+            ump = [self.u, self.dl_X_vector, self.p]
+            try:
+                self.model.solveFwd(ump[hp.STATE], ump)  #  \| D_y \cdot \|^2_{Gamma^-1} = \| \cdot \|^2?
+                self.model.misfit.d.set_local(Y_i @ output_decoder_T)
+                self.model.solveAdj(ump[hp.ADJOINT], ump)
+                grad_norm = self.model.evalGradientParameter(ump, self.mg_vector, misfit_only=True)
+                log_likes[i] = -self.model.misfit.cost(ump)
+                gradients[i] = -(self.mg_vector.get_local()) @ input_decoder
+            except:
+                print("Gradient evaluation failed, returning 0 vector for the gradient")
+                self.mg_vector.zero()
+                log_likes[i] = -1.0e4
+                gradients[i] = -self.mg_vector.get_local() @ input_decoder
+        return log_likes, gradients
+
+    def __add_numpy_joint_methods(hp_MisfitInstance: hp.Misfit):
+        hp_MisfitInstance.log_prob = types.MethodType(_log_likelihood_joint_numpy, hp_MisfitInstance)
+        hp_MisfitInstance.value_and_grad_log_prob = types.MethodType(
+            _value_and_grad_log_likelihood_joint_numpy, hp_MisfitInstance
+        )
+
+        return hp_MisfitInstance
+
+    def __prepare_hippylib_misfit(hippylib_posterior):
+        hippylib_posterior.misfit.u = hippylib_posterior.problem.generate_state()
+        hippylib_posterior.misfit.p = NewVectorFromFunctionSpace(hippylib_posterior.problem.Vh[hp.STATE])
+        hippylib_posterior.prior = _create_vector_method(hippylib_posterior.prior)
+        hippylib_posterior.misfit.prior = hippylib_posterior.prior
+        hippylib_posterior.misfit.dl_X_vector = hippylib_posterior.misfit.prior.create_vector(0)
+        hippylib_posterior.misfit.mg_vector = hippylib_posterior.generate_vector(hp.PARAMETER)
+        misfit_copy = hippylib_posterior.misfit
+        misfit_copy.model = hippylib_posterior
+        return misfit_copy
+
+    def hippylib_loglikelihood_from_model(model_name):
+        import importlib
+
+        model_module = importlib.import_module(model_name)
+
+        model = model_module.model(model_module.settings())  # does this have the right misfit???
+        return __add_numpy_joint_methods(__prepare_hippylib_misfit(model))
+
+    def __worker_evaluates_log_likelihood_and_gradient(
+        task_id: int, *, model_name: str, encodec_path: Path, reduced_dims: Tuple[int, int], **kwargs
+    ):
+        log_likelihood_wrapper = hippylib_loglikelihood_from_model(model_name)
+        # time this!
+        encodec_dict = hickle.load(encodec_path)[reduced_dims]  # cpu
+        input_decoder, output_encoder, output_decoder_T = (
+            encodec_dict["input"]["decoder"],
+            encodec_dict["output"]["encoder"],
+            encodec_dict["output"]["decoder"].T,
+        )
+        encoded_Ys, encoded_Xs = np.load(f"./multiprocess_encoded_Y_tmp/{task_id}.npy"), np.load(
+            f"./multiprocess_encoded_X_tmp/{task_id}.npy"
+        )
+        import time
+
+        results = dict()
+        start = time.perf_counter()
+        results["values"], results["gradients"] = log_likelihood_wrapper.value_and_grad_log_prob(
+            encoded_Ys, encoded_Xs, input_decoder, output_encoder, output_decoder_T
+        )
+        results["values_and_gradient_computation_time"] = time.perf_counter() - start
+
+        from pathlib import Path
+
+        Path("./multiprocess_loglike_tmp").mkdir(parents=True, exist_ok=True)
+        hickle.dump(results, f"./multiprocess_loglike_tmp/{task_id}.hkl", mode="w")
+
+        return task_id
+
+    def __single_process_worker_evaluates_log_likelihood_and_gradient(
+        task_id: int, *, model_name: str, encodec_path: Path, reduced_dims: Tuple[int, int], **kwargs
+    ):
+        # 1) force one thread
+        import os
+
+        import psutil
+
+        for var in (
+            "OMP_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "VECLIB_MAXIMUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+        ):
+            os.environ[var] = "1"
+        # 2) pin CPU
+        psutil.Process(os.getpid()).cpu_affinity([task_id])
+
+        return __worker_evaluates_log_likelihood_and_gradient(
+            task_id,
+            model_name=model_name,
+            encodec_path=encodec_path,
+            reduced_dims=reduced_dims,
+            **kwargs,
+        )
+
+    def __single_process_worker_evaluate_log_likelihood_and_gradient(
+        model_name, encodec_path: Path, reduced_dims: Tuple[int, int], **kwargs
+    ):
+        from functools import partial
+
+        return partial(
+            __single_process_worker_evaluates_log_likelihood_and_gradient,
+            model_name=model_name,
+            encodec_path=encodec_path,
+            reduced_dims=reduced_dims,
+            **kwargs,
+        )
+
+    def multiprocess_evaluate_encoded_hippylib_log_likelihood_and_gradient(
+        model_name: str,
+        encoded_X: np.ndarray,
+        encoded_Y: np.ndarray,
+        encodec_path: Path,
+        reduced_dims: Tuple[int, int],
+        N_processes: int,
+        **kwargs,
+    ):
+        # split X/Y into chunks to process on different processes and save to individual hickle files
+        quotient, remainder = divmod(encoded_X.shape[0], N_processes)
+        N_samples_on_processes = [quotient + (1 if i < remainder else 0) for i in range(N_processes)]
+        from pathlib import Path
+
+        Path("./multiprocess_encoded_X_tmp").mkdir(parents=True, exist_ok=True)
+        Path("./multiprocess_encoded_Y_tmp").mkdir(parents=True, exist_ok=True)
+        start_idx = 0
+        for i, N_samples_on_process_i in enumerate(N_samples_on_processes):
+            np.save(f"./multiprocess_encoded_X_tmp/{i}.npy", encoded_X[start_idx : start_idx + N_samples_on_process_i])
+            np.save(f"./multiprocess_encoded_Y_tmp/{i}.npy", encoded_Y[start_idx : start_idx + N_samples_on_process_i])
+            start_idx = start_idx + N_samples_on_process_i
+        # generate training data in parallel using different hippylib seeds on each processes, save to disk
+        __multiprocess(
+            __single_process_worker_evaluate_log_likelihood_and_gradient(
+                model_name, encodec_path, reduced_dims, **kwargs
+            ),
+            N_processes,
+        )
+
+        import time
+
+        start = time.perf_counter()
+        N_results_dcts = [hickle.load(f"./multiprocess_loglike_tmp/{i}.hkl") for i in range(N_processes)]
+
+        # Concatenate results, add metadata, and delete temporary stored files, and return results
+        # print("Accumulating log likelihood gradients to parent process")
+        accumulated_results = dict()
+        for k in N_results_dcts[0].keys():
+            if isinstance(N_results_dcts[0][k], np.ndarray) and N_results_dcts[0][k].shape != ():
+                accumulated_results[k] = np.concatenate([d[k] for d in N_results_dcts], axis=0)
+            else:
+                times = np.array([d[k] for d in N_results_dcts])
+                accumulated_results[k] = np.sum(times)
+                accumulated_results["parallel_max_" + k] = np.max(times)
+                accumulated_results[k.removesuffix("_time") + "_num_parallel_processes"] = N_processes
+                # print("parallel_max_" + k, accumulated_results["parallel_max_" + k])
+        accumulation_to_parent_process_time = time.perf_counter() - start
+        accumulated_results["accumulation_to_parent_process_time"] = accumulation_to_parent_process_time
+        import shutil
+
+        shutil.rmtree("multiprocess_encoded_X_tmp")
+        shutil.rmtree("multiprocess_encoded_Y_tmp")
+        shutil.rmtree("multiprocess_loglike_tmp")
+
+        return accumulated_results
 
 else:
 
@@ -670,3 +921,4 @@ else:
     multiprocess_generate_hippylib_full_Jacobian_data = _missing_dependency_error
     multiprocess_generate_hippylib_output_data = _missing_dependency_error
     multiprocess_generate_reduced_hippylib_training_data = _missing_dependency_error
+    multiprocess_evaluate_encoded_hippylib_log_likelihood_and_gradient = _missing_dependency_error
